@@ -1,0 +1,6 @@
+requests
+gtfs-realtime-bindings
+pandas
+pydantic
+pydantic-settings
+psycopg2-binary
