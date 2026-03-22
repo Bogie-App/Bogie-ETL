@@ -1,14 +1,14 @@
 from pathlib import Path
-from typing import Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import HttpUrl
+from pydantic_settings import BaseSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     
     print("Loading configuration settings started...")
-    
+
+    stations_csv_filename: str = "stations_metro.csv"
+
     # PostgreSQL
     postgres_user: str
     postgres_password: str
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     @property
     def input_dir(self) -> Path:
         """Retourne le répertoire des fichiers d'entrée."""
-        inputs_dir = PROJECT_ROOT / "Inputs"
+        inputs_dir = PROJECT_ROOT / "inputs"
         return inputs_dir
     
     @property
