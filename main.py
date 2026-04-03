@@ -1,38 +1,60 @@
-import time
-from ingestion.station_csv_loader import station_csv_loader
-from repository.station_repository import insert_stations_batch, is_stations_table_empty
-from transformation.station_normalize import station_normalize
+import datetime
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
+
+from ingestion.gtfs_loader import gtfs_loader
+from repository.station_repository import insert_station_timings_batch, insert_stations_batch
+from transformation.metro_station_dataframe import metro_station_dataframe, station_timing_dataframe
 from config.logger import logger
+from config.configuration import settings
 
-def main():
-    logger.info("lancement du processus ETL...")
+def etl_job() -> None:
+    """Job ETL : ingestion => transformation => insertion."""
 
-    while True:
-        if not is_stations_table_empty():
-            logger.info("La table stations contient déjà des données. ETL ignoré pour ce cycle.")
-            
-            # fonctionnalité par la suite ...
+    # Ingestion
+    df_stops, df_routes, df_trips, df_stop_times = gtfs_loader(settings)
 
-            logger.info("Cycle de traitement terminé. Attente de 60 secondes...")
-            time.sleep(60)
-            continue
+    # Transformation
+    station_lines, df_metro = metro_station_dataframe(df_stops, df_routes, df_trips, df_stop_times)
+    station_timings = station_timing_dataframe(df_metro)
+    # Insertion
+    insert_stations_batch(station_lines)
 
-        logger.info("Table stations vide. Lancement du cycle ETL.")
+    # Revoir les horraires !
+    insert_station_timings_batch(station_timings)
 
-        logger.info("Phase d'extraction...")
-        stations_brut = station_csv_loader()
-        logger.info(f"{len(stations_brut)} stations extraites.")
 
-        logger.info("Phase de transformation...")
-        stations_cleaning = station_normalize(stations_brut)
+def on_job_event(event: JobExecutionEvent) -> None:
+    if event.exception:
+        logger.error(f"Cycle ETL échoué : {event.exception}")
+    else:
+        logger.info("Cycle ETL terminé avec succès.")
 
-        logger.info("Phase de chargement...")
-        insert_stations_batch(stations_cleaning)
-        logger.info("Processus ETL terminé.")
 
-        # Cycle à préparer
-        logger.info("Cycle de traitement terminé. Attente de 60 secondes...")
-        time.sleep(60)
+def main() -> None:
+    logger.info("Lancement du processus ETL...")
+
+    scheduler = BlockingScheduler()
+    scheduler.add_job(
+        etl_job,
+        trigger='interval',
+        minutes=settings.CYCLE_INTERVAL_MINUTES,
+        id='etl_job',
+        next_run_time=datetime.datetime.now(),
+        max_instances=1,
+        misfire_grace_time=30,
+    )
+    scheduler.add_listener(on_job_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+
+    logger.info(f"Scheduler démarré cycle toutes les {settings.CYCLE_INTERVAL_MINUTES} minutes")
+
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Arrêt du scheduler ETL")
+        scheduler.shutdown()
+
 
 if __name__ == "__main__":
     main()
