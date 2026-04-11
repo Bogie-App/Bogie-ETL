@@ -4,7 +4,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
 
 from ingestion.gtfs_loader import gtfs_loader
-from repository.station_repository import insert_station_timings_batch, insert_stations_batch
+from repository.station_repository import insert_station_timings_batch, insert_stations_batch, purge_old_timings
 from transformation.metro_station_dataframe import metro_station_dataframe, station_timing_dataframe
 from config.logger import logger
 from config.configuration import settings
@@ -12,17 +12,22 @@ from config.configuration import settings
 def etl_job() -> None:
     """Job ETL : ingestion => transformation => insertion."""
 
+    # Purge des horaires expirés avant ingestion
+    purge_old_timings(settings.CALENDAR_DAYS_AHEAD)
+
     # Ingestion
-    df_stops, df_routes, df_trips, df_stop_times = gtfs_loader(settings)
+    df_stops, df_routes, df_trips, df_stop_times, df_calendar = gtfs_loader(settings)
+
+    # mettre une vérification de la qualité des données
+    # Check()
 
     # Transformation
     station_lines, df_metro = metro_station_dataframe(df_stops, df_routes, df_trips, df_stop_times)
-    station_timings = station_timing_dataframe(df_metro)
     # Insertion
     insert_stations_batch(station_lines)
 
-    # Revoir les horraires !
-    insert_station_timings_batch(station_timings)
+    for chunk in station_timing_dataframe(df_metro, df_calendar, settings.CALENDAR_DAYS_AHEAD):
+        insert_station_timings_batch(chunk)
 
 
 def on_job_event(event: JobExecutionEvent) -> None:

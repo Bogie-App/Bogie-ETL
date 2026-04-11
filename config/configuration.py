@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     # GTFS
     GTFS_STATIC_ILEVIA_URL: str = 'https://media.ilevia.fr/opendata/gtfs.zip'
     CYCLE_INTERVAL_MINUTES: int = 1440
-
+    CALENDAR_DAYS_AHEAD: int = 14
+    
     # PostgreSQL
     postgres_user: str
     postgres_password: str

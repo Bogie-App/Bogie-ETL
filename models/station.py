@@ -28,3 +28,5 @@ class StationTiming(BaseModel):
     line_name: str
     arrival_time: str
     departure_time: str
+    date: str
+    direction: int
