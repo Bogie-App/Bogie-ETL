@@ -4,33 +4,6 @@ from models.station import StationLine, StationTiming
 from psycopg2.extras import execute_values
 
 
-def purge_old_timings(retention_days: int = 14) -> int:
-    """Supprime les horaires dont la date est antérieure à la fenêtre de rétention.
-    Retourne le nombre de lignes supprimées."""
-    conn = get_connection()
-    if conn is None:
-        logger.error("Connexion échouée. Purge annulée.")
-        return 0
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM station_timing WHERE date < CURRENT_DATE - %s * INTERVAL '1 day'",
-                (retention_days,),
-            )
-            deleted = cursor.rowcount
-        conn.commit()
-        if deleted:
-            logger.info(f"Purge : {deleted} anciens horaires supprimés (rétention {retention_days}j).")
-        else:
-            logger.info("Purge : aucun ancien horaire à supprimer.")
-        return deleted
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Erreur lors de la purge des anciens timings : {e}")
-        return 0
-    finally:
-        release_connection(conn)
 
 def is_stations_table_empty() -> bool:
     """Retourne True si la table stations est vide"""
@@ -137,18 +110,18 @@ def insert_stations_batch(station_lines: list[StationLine]) -> None:
         release_connection(conn)
 
 
-def insert_station_timings_batch(timings: list[StationTiming]) -> None:
+def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
+    """Insère un chunk dans la table de staging"""
     if not timings:
         return
 
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion échouée. Insertion timing annulée.")
+        logger.error("Connexion échouée. Insertion staging annulée.")
         return
 
     try:
         with conn.cursor() as cursor:
-            # Récupère les ID depuis ce qui existe déjà en base
             stop_ids = list({t.stop_id for t in timings})
             line_names = list({t.line_name for t in timings})
 
@@ -166,18 +139,43 @@ def insert_station_timings_batch(timings: list[StationTiming]) -> None:
 
             execute_values(
                 cursor,
-                """
-                INSERT INTO station_timing (station_id, line_id, arrival_time, departure_time, date, direction)
-                VALUES %s
-                ON CONFLICT (station_id, line_id, arrival_time, departure_time, date, direction) DO NOTHING
-                """,
+                "INSERT INTO station_timing_staging (station_id, line_id, arrival_time, departure_time, date, direction) VALUES %s",
                 timing_data,
             )
-            logger.info(f"{len(timing_data)} horaires insérés.")
-
         conn.commit()
+        logger.info(f"{len(timing_data)} horaires chargés en staging.")
     except Exception as e:
         conn.rollback()
-        logger.error(f"Erreur insertion timings : {e}")
+        logger.error(f"Erreur insertion staging : {e}")
+    finally:
+        release_connection(conn)
+
+
+def swap_timing_staging() -> int:
+    conn = get_connection()
+    if conn is None:
+        logger.error("Connexion échouée. Swap staging annulé.")
+        return 0
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("TRUNCATE TABLE station_timing")
+
+            cursor.execute("""
+                INSERT INTO station_timing (station_id, line_id, arrival_time, departure_time, date, direction)
+                SELECT DISTINCT station_id, line_id, arrival_time, departure_time, date, direction
+                FROM station_timing_staging
+            """)
+            inserted = cursor.rowcount
+
+            cursor.execute("TRUNCATE TABLE station_timing_staging")
+
+        conn.commit()
+        logger.info(f"Swap staging : {inserted} horaires insérés.")
+        return inserted
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Erreur swap staging : {e}")
+        return 0
     finally:
         release_connection(conn)

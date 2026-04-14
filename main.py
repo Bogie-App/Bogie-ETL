@@ -4,30 +4,58 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
 
 from ingestion.gtfs_loader import gtfs_loader
-from repository.station_repository import insert_station_timings_batch, insert_stations_batch, purge_old_timings
-from transformation.metro_station_dataframe import metro_station_dataframe, station_timing_dataframe
+from clean.data_quality import DataQualityError, run_quality_checks
+from clean.data_quality import clean_dataset
+from repository.station_repository import (
+    insert_stations_batch,
+    insert_timing_staging_batch,
+    swap_timing_staging,
+)
+from transformation.gtfs_transformer import GTFSTransformer
 from config.logger import logger
 from config.configuration import settings
+from config.config_datasets import PIPELINE_CONFIG
 
 def etl_job() -> None:
-    """Job ETL : ingestion => transformation => insertion."""
-
-    # Purge des horaires expirés avant ingestion
-    purge_old_timings(settings.CALENDAR_DAYS_AHEAD)
+    """Job ETL : ingestion => nettoyage => qualité => transformation => insertion atomique."""
 
     # Ingestion
     df_stops, df_routes, df_trips, df_stop_times, df_calendar = gtfs_loader(settings)
 
-    # mettre une vérification de la qualité des données
-    # Check()
+    # Nettoyage — projection sur les colonnes utiles
+    raw_datasets = {
+        'stops':      df_stops,
+        'routes':     df_routes,
+        'trips':      df_trips,
+        'stop_times': df_stop_times,
+        'calendar':   df_calendar,
+    }
+    cleaned_datasets = {
+        name: clean_dataset(df, PIPELINE_CONFIG[name])
+        for name, df in raw_datasets.items()
+    }
+
+    # Qualité bloquant si données corrompues
+    try:
+        run_quality_checks(cleaned_datasets)
+    except DataQualityError as e:
+        logger.error(f"Cycle annulé — qualité insuffisante : {e}")
+        return
 
     # Transformation
-    station_lines, df_metro = metro_station_dataframe(df_stops, df_routes, df_trips, df_stop_times)
-    # Insertion
-    insert_stations_batch(station_lines)
+    transformer = GTFSTransformer(
+        df_stops=cleaned_datasets['stops'],
+        df_routes=cleaned_datasets['routes'],
+        df_trips=cleaned_datasets['trips'],
+        df_stop_times=cleaned_datasets['stop_times'],
+    )
+    insert_stations_batch(transformer.station_lines())
 
-    for chunk in station_timing_dataframe(df_metro, df_calendar, settings.CALENDAR_DAYS_AHEAD):
-        insert_station_timings_batch(chunk)
+    # Chargement des horaires en staging puis swap atomique
+    for chunk in transformer.timing_chunks(cleaned_datasets['calendar'], horizon_days=settings.CALENDAR_DAYS_AHEAD):
+        insert_timing_staging_batch(chunk)
+
+    swap_timing_staging()
 
 
 def on_job_event(event: JobExecutionEvent) -> None:

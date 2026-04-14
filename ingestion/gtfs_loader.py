@@ -21,10 +21,10 @@ def _build_session() -> requests.Session:
     return session
 
 
-def gtfs_loader(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def gtfs_loader(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Télécharge les données GTFS statiques d'ilevia
-    Retourne (df_stops, df_routes, df_trips, df_stop_times)
+    Retourne (df_stops, df_routes, df_trips, df_stop_times, df_calendar)
     """
 
     session = _build_session()
