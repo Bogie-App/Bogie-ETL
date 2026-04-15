@@ -69,6 +69,9 @@ class GTFSTransformer:
 
         df_calendars : service_id, date (format YYYYMMDD)
         """
+        if horizon_days <= 0:
+         raise ValueError(f"horizon_days doit être positif, reçu : {horizon_days}")
+
         logger.info(f"Transformation GTFS -> StationTiming (fenêtre {horizon_days}j, chunks {chunk_size})...")
 
         df = self._build_timing_dataframe(df_calendars, horizon_days)
@@ -205,22 +208,3 @@ class GTFSTransformer:
         ).dt.strftime('%Y%m%d')
 
         return df
-
-    # _normalize_time / _day_offset / _shift_date conservés pour usage ponctuel externe
-    @staticmethod
-    def _normalize_time(gtfs_time: str) -> str:
-        """Normalise un horaire GTFS en HH:MM:SS valide (ex: 25:00:00 -> 01:00:00)."""
-        h, m, s = gtfs_time.strip().split(':')
-        return f"{int(h) % 24:02d}:{int(m):02d}:{int(s):02d}"
-
-    @staticmethod
-    def _day_offset(gtfs_time: str) -> int:
-        """Retourne le décalage en jours (1 si heure >= 24, sinon 0)."""
-        return int(gtfs_time.strip().split(':')[0]) // 24
-
-    @staticmethod
-    def _shift_date(date_str: str, days: int) -> str:
-        """Décale une date GTFS (YYYYMMDD) du nombre de jours donné."""
-        if days == 0:
-            return date_str
-        return (datetime.strptime(date_str, '%Y%m%d') + timedelta(days=days)).strftime('%Y%m%d')

@@ -1,7 +1,6 @@
 requests
 gtfs-realtime-bindings
 pandas
-numpy
 pydantic
 pydantic-settings
 psycopg2-binary

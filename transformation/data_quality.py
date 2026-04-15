@@ -26,8 +26,7 @@ def check_stops(df: pd.DataFrame) -> None:
         ~lons.between(*_LILLE_LON)
     ).sum()
     if out_of_bbox:
-        logger.warning(f"[stops] {out_of_bbox} arrêt(s) hors bounding box Lille ou coordonnées invalides.")
-
+        raise DataQualityError(f"[stops] qualité insuffisante : {out_of_bbox} arrêt(s) hors bbox ou coordonnées invalides.")
 
 def check_routes(df: pd.DataFrame) -> None:
     """Vérifie la qualité du dataset routes."""

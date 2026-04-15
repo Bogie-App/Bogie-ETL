@@ -4,8 +4,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
 
 from ingestion.gtfs_loader import gtfs_loader
-from clean.data_quality import DataQualityError, run_quality_checks
-from clean.data_quality import clean_dataset
+from transformation.data_quality import DataQualityError, run_quality_checks, clean_dataset
 from repository.station_repository import (
     insert_stations_batch,
     insert_timing_staging_batch,
