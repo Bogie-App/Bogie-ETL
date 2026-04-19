@@ -34,21 +34,21 @@ class GTFSTransformer:
 
     ) -> None:
         self._df_metro = self._build_metro_dataframe(df_stops, df_routes, df_trips, df_stop_times)
-        self._station_repo = MetroDataFrameView(self._df_metro)
+        self._metro_view = MetroDataFrameView(self._df_metro)
 
     # Use Case 
     def station_lines(self) -> list[StationLine]:
 
         """Retourne la liste des relations station-ligne avec leur ordre sur le trajet."""
         
-        line_names = self._station_repo.list_line_names() # repo
+        line_names = self._metro_view.list_line_names() # repo
         
         logger.info(f"Lignes métro détectées : {line_names}")
 
         result: list[StationLine] = []
 
         for line_name in line_names:
-            rows = self._station_repo.get_line_stop_rows(line_name) # repo
+            rows = self._metro_view.get_line_stop_rows(line_name) # repo
             canonical = _canonical_route(rows, line_name) # service
             if canonical.empty:
                 continue

@@ -1,4 +1,4 @@
-from config.connect import get_connection
+from config.connect import get_connection, release_connection
 from config.logger import logger
 
 
@@ -13,28 +13,31 @@ def _ensure_etl_metadata_table(conn) -> None:
                 updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        conn.commit()
+
 
 def get_etl_metadata(key: str) -> str | None:
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion à la base de données échouée. Impossible de récupérer les métadonnées.")
-        return None
+        raise ConnectionError("Connexion à la base de données échouée. Lecture métadonnées annulée.")
     try:
         _ensure_etl_metadata_table(conn)
         with conn.cursor() as cursor:
             cursor.execute("SELECT value FROM etl_metadata WHERE key = %s", (key,))
             result = cursor.fetchone()
-            return result[0] if result else None
+        conn.commit()
+        return result[0] if result else None
     except Exception as e:
+        conn.rollback()
         logger.error(f"Erreur lors de la récupération des métadonnées pour '{key}' : {e}")
-        return None
-    
+        raise
+    finally:
+        release_connection(conn)
+
+
 def upsert_etl_metadata(key: str, value: str) -> None:
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion à la base de données échouée. Impossible de mettre à jour les métadonnées.")
-        return
+        raise ConnectionError("Connexion à la base de données échouée. Upsert métadonnées annulé.")
     try:
         _ensure_etl_metadata_table(conn)
         with conn.cursor() as cursor:
@@ -44,9 +47,11 @@ def upsert_etl_metadata(key: str, value: str) -> None:
                     value = EXCLUDED.value,
                     updated_at = CURRENT_TIMESTAMP
             """, (key, value))
-            conn.commit()
-            logger.info(f"Métadonnée '{key}' mise à jour avec succès.")
+        conn.commit()
+        logger.info(f"Métadonnée '{key}' mise à jour avec succès.")
     except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour des métadonnées pour '{key}' : {e}")
         conn.rollback()
-
+        logger.error(f"Erreur lors de la mise à jour des métadonnées pour '{key}' : {e}")
+        raise
+    finally:
+        release_connection(conn)

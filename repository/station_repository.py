@@ -16,8 +16,7 @@ def insert_stations_batch(station_lines: list[StationLine]) -> None:
 
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion à la base de données échouée. Insertion annulée.")
-        return
+        raise ConnectionError("Connexion à la base de données échouée. Insertion stations annulée.")
 
     try:
         with conn.cursor() as cursor:
@@ -85,6 +84,7 @@ def insert_stations_batch(station_lines: list[StationLine]) -> None:
     except Exception as e:
         conn.rollback()
         logger.error(f"Erreur lors de l'insertion : {e}")
+        raise
     finally:
         release_connection(conn)
 
@@ -96,8 +96,7 @@ def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
 
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion échouée. Insertion staging annulée.")
-        return
+        raise ConnectionError("Connexion à la base de données échouée. Insertion staging annulée.")
 
     try:
         with conn.cursor() as cursor:
@@ -126,6 +125,7 @@ def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
     except Exception as e:
         conn.rollback()
         logger.error(f"Erreur insertion staging : {e}")
+        raise
     finally:
         release_connection(conn)
 
@@ -133,8 +133,7 @@ def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
 def swap_timing_staging() -> int:
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion échouée. Swap staging annulé.")
-        return 0
+        raise ConnectionError("Connexion à la base de données échouée. Swap staging annulé.")
 
     try:
         with conn.cursor() as cursor:
@@ -155,6 +154,6 @@ def swap_timing_staging() -> int:
     except Exception as e:
         conn.rollback()
         logger.error(f"Erreur swap staging : {e}")
-        return 0
+        raise
     finally:
         release_connection(conn)

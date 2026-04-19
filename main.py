@@ -4,6 +4,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
 
 from ingestion.gtfs_loader import gtfs_loader
+from repository.metadata_repository import upsert_etl_metadata
 from transformation.data_quality.data_quality import DataQualityError, run_quality_checks, clean_dataset
 from transformation.data_quality.clean_dataframe import (
     StopCleaner,
@@ -27,12 +28,12 @@ def etl_job() -> None:
     """Job ETL : ingestion => nettoyage => qualité => transformation => insertion atomique."""
 
     # Ingestion
-    result, _ = gtfs_loader(settings)
+    result = gtfs_loader(settings)
     if result is None:
         logger.info("Cycle ignoré : GTFS inchangé.")
         return
 
-    df_stops, df_routes, df_trips, df_stop_times, df_calendar = result
+    (df_stops, df_routes, df_trips, df_stop_times, df_calendar), new_etag = result
 
     # Transform
     # ---------------
@@ -81,11 +82,16 @@ def etl_job() -> None:
     # to do => faire un insert si seulement les données ont changé 
     insert_stations_batch(transformer.station_lines())
 
-    # Chargement des horaires en staging puis swap atomique 
+    # Chargement des horaires en staging puis swap atomique
     for chunk in transformer.timing_chunks(cleaned_datasets['calendar'], horizon_days=settings.CALENDAR_DAYS_AHEAD):
         insert_timing_staging_batch(chunk)
 
     swap_timing_staging()
+
+    # Persistance de l'ETag SEULEMENT après succès complet du pipeline
+    # évite d'ignore un cycle à cause d'un crash 
+    if new_etag:
+        upsert_etl_metadata('source_gtfs_etag', new_etag)
 
 
 def on_job_event(event: JobExecutionEvent) -> None:
