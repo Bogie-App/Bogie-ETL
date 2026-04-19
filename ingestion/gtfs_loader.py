@@ -1,15 +1,19 @@
 import io
 import zipfile
 import pandas as pd
-from config.configuration import Settings
-from config.logger import logger
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from config.configuration import Settings
+from config.logger import logger
+from repository.metadata_repository import get_etl_metadata
+
+GTFSBundle = tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
+GTFSResult = tuple[GTFSBundle, str | None]
 
 
 def _build_session() -> requests.Session:
-    """session HTTP avec retry et backoff"""
+    """Session HTTP avec retry et backoff"""
     session = requests.Session()
     retry = Retry(
         total=3,
@@ -21,23 +25,34 @@ def _build_session() -> requests.Session:
     return session
 
 
-def gtfs_loader(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def gtfs_loader(settings: Settings) -> GTFSResult | None:
     """
-    Télécharge les données GTFS statiques d'ilevia
-    Retourne (df_stops, df_routes, df_trips, df_stop_times, df_calendar)
+    Télécharge les données GTFS statiques si elles ont été modifiées (ETag).
+    Retourne (DataFrames, nouvel ETag) ou None si GTFS inchangé (HTTP 304).
+    L'ETag n'est PAS persisté ici — le caller le commit après succès du pipeline.
     """
-
     session = _build_session()
     url = settings.GTFS_STATIC_ILEVIA_URL
+    last_etag = get_etl_metadata('source_gtfs_etag')
 
-    # par la suite vérifier si le fichier a changé (ETag / If-None-Match)
-    logger.info(f"Téléchargement du GTFS depuis {url}...")
-    response = session.get(url, timeout=60)
+    req_headers = {}
+    if last_etag:
+        req_headers['If-None-Match'] = last_etag
+        logger.info(f"Vérification de mise à jour avec l'ETag : {last_etag}")
+
+    logger.info(f"Appel de {url}...")
+    response = session.get(url, headers=req_headers, timeout=60)
+
+    if response.status_code == 304:
+        logger.info("HTTP 304 : GTFS inchangé depuis la dernière ingestion, prenons un petit café ☕ !")
+        return None
+
     response.raise_for_status()
-    content = response.content
-    logger.info(f"GTFS téléchargé ({len(content)} octets).")
 
-    # Extraction des fichiers CSV
+    new_etag = response.headers.get('ETag')
+    content = response.content
+    logger.info(f"Nouveau GTFS téléchargé ({len(content)} octets). Nouvel ETag récupéré : {new_etag}")
+
     with zipfile.ZipFile(io.BytesIO(content)) as z:
         logger.debug(f"Fichiers GTFS disponibles : {z.namelist()}")
         with z.open('stops.txt') as f:
@@ -53,4 +68,5 @@ def gtfs_loader(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 
     logger.info(f"stops={len(df_stops)} | routes={len(df_routes)} | trips={len(df_trips)} | stop_times={len(df_stop_times)} | calendar_dates={len(df_calendar)}")
 
-    return df_stops, df_routes, df_trips, df_stop_times, df_calendar
+    dataframes = (df_stops, df_routes, df_trips, df_stop_times, df_calendar)
+    return dataframes, new_etag

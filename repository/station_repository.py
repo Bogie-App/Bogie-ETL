@@ -3,27 +3,6 @@ from config.logger import logger
 from models.station import StationLine, StationTiming
 from psycopg2.extras import execute_values
 
-
-
-def is_stations_table_empty() -> bool:
-    """Retourne True si la table stations est vide"""
-    conn = get_connection()
-    if conn is None:
-        logger.error("Connexion à la base de données échouée. Contrôle annulé.")
-        return False
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT NOT EXISTS (SELECT 1 FROM stations LIMIT 1);")
-            result = cursor.fetchone()
-            return bool(result[0]) if result else False
-    except Exception as e:
-        logger.error(f"Erreur lors du contrôle de la table stations : {e}")
-        return False
-    finally:
-        release_connection(conn)
-
-
 def insert_stations_batch(station_lines: list[StationLine]) -> None:
     """
     Insère les données en 3 étapes :
@@ -37,8 +16,7 @@ def insert_stations_batch(station_lines: list[StationLine]) -> None:
 
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion à la base de données échouée. Insertion annulée.")
-        return
+        raise ConnectionError("Connexion à la base de données échouée. Insertion stations annulée.")
 
     try:
         with conn.cursor() as cursor:
@@ -106,6 +84,7 @@ def insert_stations_batch(station_lines: list[StationLine]) -> None:
     except Exception as e:
         conn.rollback()
         logger.error(f"Erreur lors de l'insertion : {e}")
+        raise
     finally:
         release_connection(conn)
 
@@ -117,8 +96,7 @@ def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
 
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion échouée. Insertion staging annulée.")
-        return
+        raise ConnectionError("Connexion à la base de données échouée. Insertion staging annulée.")
 
     try:
         with conn.cursor() as cursor:
@@ -147,6 +125,7 @@ def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
     except Exception as e:
         conn.rollback()
         logger.error(f"Erreur insertion staging : {e}")
+        raise
     finally:
         release_connection(conn)
 
@@ -154,8 +133,7 @@ def insert_timing_staging_batch(timings: list[StationTiming]) -> None:
 def swap_timing_staging() -> int:
     conn = get_connection()
     if conn is None:
-        logger.error("Connexion échouée. Swap staging annulé.")
-        return 0
+        raise ConnectionError("Connexion à la base de données échouée. Swap staging annulé.")
 
     try:
         with conn.cursor() as cursor:
@@ -176,6 +154,6 @@ def swap_timing_staging() -> int:
     except Exception as e:
         conn.rollback()
         logger.error(f"Erreur swap staging : {e}")
-        return 0
+        raise
     finally:
         release_connection(conn)

@@ -4,13 +4,22 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
 
 from ingestion.gtfs_loader import gtfs_loader
-from transformation.data_quality import DataQualityError, run_quality_checks, clean_dataset
+from repository.metadata_repository import upsert_etl_metadata
+from transformation.data_quality.data_quality import DataQualityError, run_quality_checks, clean_dataset
+from transformation.data_quality.clean_dataframe import (
+    StopCleaner,
+    RouteCleaner,
+    TripCleaner,
+    StopTimeCleaner,
+    CalendarCleaner,
+)
 from repository.station_repository import (
     insert_stations_batch,
     insert_timing_staging_batch,
     swap_timing_staging,
 )
-from transformation.gtfs_transformer import GTFSTransformer
+
+from transformation.gtfs_station_pipeline import GTFSTransformer
 from config.logger import logger
 from config.configuration import settings
 from config.config_datasets import PIPELINE_CONFIG
@@ -19,8 +28,15 @@ def etl_job() -> None:
     """Job ETL : ingestion => nettoyage => qualité => transformation => insertion atomique."""
 
     # Ingestion
-    df_stops, df_routes, df_trips, df_stop_times, df_calendar = gtfs_loader(settings)
+    result = gtfs_loader(settings)
+    if result is None:
+        logger.info("Cycle ignoré : GTFS inchangé.")
+        return
 
+    (df_stops, df_routes, df_trips, df_stop_times, df_calendar), new_etag = result
+
+    # Transform
+    # ---------------
     # Nettoyage — projection sur les colonnes utiles
     raw_datasets = {
         'stops':      df_stops,
@@ -29,9 +45,22 @@ def etl_job() -> None:
         'stop_times': df_stop_times,
         'calendar':   df_calendar,
     }
-    cleaned_datasets = {
+    projected_datasets = {
         name: clean_dataset(df, PIPELINE_CONFIG[name])
         for name, df in raw_datasets.items()
+    }
+
+    # Nettoyage metier (null, valeurs vides, valeurs autorisees, dedoublonnage)
+    cleaners = {
+        'stops': StopCleaner(),
+        'routes': RouteCleaner(),
+        'trips': TripCleaner(),
+        'stop_times': StopTimeCleaner(),
+        'calendar': CalendarCleaner(),
+    }
+    cleaned_datasets = {
+        name: cleaners[name].clean(df)
+        for name, df in projected_datasets.items()
     }
 
     # Qualité bloquant si données corrompues
@@ -48,6 +77,9 @@ def etl_job() -> None:
         df_trips=cleaned_datasets['trips'],
         df_stop_times=cleaned_datasets['stop_times'],
     )
+    # ---------------
+
+    # to do => faire un insert si seulement les données ont changé 
     insert_stations_batch(transformer.station_lines())
 
     # Chargement des horaires en staging puis swap atomique
@@ -55,6 +87,11 @@ def etl_job() -> None:
         insert_timing_staging_batch(chunk)
 
     swap_timing_staging()
+
+    # Persistance de l'ETag SEULEMENT après succès complet du pipeline
+    # évite d'ignore un cycle à cause d'un crash 
+    if new_etag:
+        upsert_etl_metadata('source_gtfs_etag', new_etag)
 
 
 def on_job_event(event: JobExecutionEvent) -> None:
