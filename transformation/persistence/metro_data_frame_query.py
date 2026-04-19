@@ -1,4 +1,4 @@
-class GTFSStationRepository:
+class MetroDataFrameView:
     def __init__(self, df_metro):
         self._df_metro = df_metro
 

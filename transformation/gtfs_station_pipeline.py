@@ -9,7 +9,7 @@ from transformation.business_layer.gtfs_joins import (
     _join_stop_times_to_trips,
     _join_stop_info,
 )
-from transformation.persistence.metro_data_frame_query import GTFSStationRepository
+from transformation.persistence.metro_data_frame_query import MetroDataFrameView
 from transformation.mappers.station_line_mapper import _to_domain , _to_timing_chunks
 
 class GTFSTransformer:
@@ -34,7 +34,7 @@ class GTFSTransformer:
 
     ) -> None:
         self._df_metro = self._build_metro_dataframe(df_stops, df_routes, df_trips, df_stop_times)
-        self._station_repo = GTFSStationRepository(self._df_metro)
+        self._station_repo = MetroDataFrameView(self._df_metro)
 
     # Use Case 
     def station_lines(self) -> list[StationLine]:
@@ -89,6 +89,7 @@ class GTFSTransformer:
 
         return _to_timing_chunks(df, chunk_size) # presentation
 
+    # logic et travaille trop lourd 
     def _build_metro_dataframe(
         self,
         df_stops: pd.DataFrame,

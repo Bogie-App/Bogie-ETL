@@ -17,6 +17,7 @@ from repository.station_repository import (
     insert_timing_staging_batch,
     swap_timing_staging,
 )
+
 from transformation.gtfs_station_pipeline import GTFSTransformer
 from config.logger import logger
 from config.configuration import settings
@@ -26,7 +27,12 @@ def etl_job() -> None:
     """Job ETL : ingestion => nettoyage => qualité => transformation => insertion atomique."""
 
     # Ingestion
-    df_stops, df_routes, df_trips, df_stop_times, df_calendar = gtfs_loader(settings)
+    result, _ = gtfs_loader(settings)
+    if result is None:
+        logger.info("Cycle ignoré : GTFS inchangé.")
+        return
+
+    df_stops, df_routes, df_trips, df_stop_times, df_calendar = result
 
     # Transform
     # ---------------
