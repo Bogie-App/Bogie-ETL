@@ -3,27 +3,6 @@ from config.logger import logger
 from models.station import StationLine, StationTiming
 from psycopg2.extras import execute_values
 
-
-
-def is_stations_table_empty() -> bool:
-    """Retourne True si la table stations est vide"""
-    conn = get_connection()
-    if conn is None:
-        logger.error("Connexion à la base de données échouée. Contrôle annulé.")
-        return False
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT NOT EXISTS (SELECT 1 FROM stations LIMIT 1);")
-            result = cursor.fetchone()
-            return bool(result[0]) if result else False
-    except Exception as e:
-        logger.error(f"Erreur lors du contrôle de la table stations : {e}")
-        return False
-    finally:
-        release_connection(conn)
-
-
 def insert_stations_batch(station_lines: list[StationLine]) -> None:
     """
     Insère les données en 3 étapes :

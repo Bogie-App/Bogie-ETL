@@ -1,7 +1,7 @@
 import re
 import pandas as pd
 from config.logger import logger
-
+## aligner la logique metier avec clean_dataframe
 # Bounding box approximative de la métropole lilloise
 _LILLE_LAT = (50.4, 50.8)
 _LILLE_LON = (2.8, 3.3)
