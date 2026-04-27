@@ -53,18 +53,50 @@ def gtfs_loader(settings: Settings) -> GTFSResult | None:
     content = response.content
     logger.info(f"Nouveau GTFS téléchargé ({len(content)} octets). Nouvel ETag récupéré : {new_etag}")
 
+    dtype_stops = {
+        'stop_id': 'category',
+        'stop_name': 'string',
+        'stop_desc': 'string',
+        'stop_lat': 'float32',
+        'stop_lon': 'float32',
+    }
+    dtype_routes = {
+        'route_id': 'category',
+        'route_short_name': 'string',
+        'route_long_name': 'string',
+        'route_type': 'int8',
+    }
+    dtype_trips = {
+        'trip_id': 'category',
+        'route_id': 'category',
+        'service_id': 'category',
+        'direction_id': 'int8',
+    }
+    dtype_stop_times = {
+        'trip_id': 'category',
+        'arrival_time': 'string',
+        'departure_time': 'string',
+        'stop_id': 'category',
+        'stop_sequence': 'int32',
+    }
+    dtype_calendar = {
+        'service_id': 'category',
+        'date': 'string',
+    }
+
     with zipfile.ZipFile(io.BytesIO(content)) as z:
         logger.debug(f"Fichiers GTFS disponibles : {z.namelist()}")
+        # usecols pour limiter la RAM, dtype=str pour éviter les problèmes de types (ex: stop_id alphanumérique) et keep_default_na=False pour éviter les NaN sur les champs vides
         with z.open('stops.txt') as f:
-            df_stops = pd.read_csv(f, dtype=str, keep_default_na=False)
+            df_stops = pd.read_csv(f, dtype=dtype_stops, usecols=['stop_id', 'stop_name', 'stop_desc', 'stop_lat', 'stop_lon'])
         with z.open('routes.txt') as f:
-            df_routes = pd.read_csv(f, dtype=str, keep_default_na=False)
+            df_routes = pd.read_csv(f, dtype=dtype_routes, usecols=['route_id', 'route_type', 'route_short_name', 'route_long_name'])
         with z.open('trips.txt') as f:
-            df_trips = pd.read_csv(f, dtype=str, keep_default_na=False)
+            df_trips = pd.read_csv(f, dtype=dtype_trips, usecols=['trip_id', 'route_id', 'service_id', 'direction_id'])
         with z.open('stop_times.txt') as f:
-            df_stop_times = pd.read_csv(f, dtype=str, keep_default_na=False)
+            df_stop_times = pd.read_csv(f, dtype=dtype_stop_times, usecols=['trip_id', 'stop_id', 'stop_sequence', 'arrival_time', 'departure_time'])
         with z.open('calendar_dates.txt') as f:
-            df_calendar = pd.read_csv(f, dtype=str, keep_default_na=False)
+            df_calendar = pd.read_csv(f, dtype=dtype_calendar, usecols=['service_id', 'date'])
 
     logger.info(f"stops={len(df_stops)} | routes={len(df_routes)} | trips={len(df_trips)} | stop_times={len(df_stop_times)} | calendar_dates={len(df_calendar)}")
 

@@ -37,30 +37,19 @@ def etl_job() -> None:
 
     # Transform
     # ---------------
-    # Nettoyage — projection sur les colonnes utiles
-    raw_datasets = {
-        'stops':      df_stops,
-        'routes':     df_routes,
-        'trips':      df_trips,
-        'stop_times': df_stop_times,
-        'calendar':   df_calendar,
-    }
-    projected_datasets = {
-        name: clean_dataset(df, PIPELINE_CONFIG[name])
-        for name, df in raw_datasets.items()
-    }
-
-    # Nettoyage metier (null, valeurs vides, valeurs autorisees, dedoublonnage)
     cleaners = {
-        'stops': StopCleaner(),
-        'routes': RouteCleaner(),
-        'trips': TripCleaner(),
+        'stops':      StopCleaner(),
+        'routes':     RouteCleaner(),
+        'trips':      TripCleaner(),
         'stop_times': StopTimeCleaner(),
-        'calendar': CalendarCleaner(),
+        'calendar':   CalendarCleaner(),
     }
     cleaned_datasets = {
-        name: cleaners[name].clean(df)
-        for name, df in projected_datasets.items()
+        name: cleaners[name].clean(clean_dataset(df, PIPELINE_CONFIG[name]))
+        for name, df in {
+            'stops': df_stops, 'routes': df_routes, 'trips': df_trips,
+            'stop_times': df_stop_times, 'calendar': df_calendar,
+        }.items()
     }
 
     # Qualité bloquant si données corrompues
@@ -79,7 +68,6 @@ def etl_job() -> None:
     )
     # ---------------
 
-    # to do => faire un insert si seulement les données ont changé 
     insert_stations_batch(transformer.station_lines())
 
     # Chargement des horaires en staging puis swap atomique

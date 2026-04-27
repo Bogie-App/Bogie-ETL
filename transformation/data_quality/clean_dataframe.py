@@ -13,7 +13,6 @@ import pandas as pd
 # route_id => ne doit pas etre null / unique
 # route_short_name => ne doit pas etre null
 # route_long_name => ne doit pas etre null
-# route_desc => ne doit pas etre null
 # route_type => ne doit pas etre null
 
 # === df_trips ===
@@ -36,37 +35,33 @@ import pandas as pd
 # date => ne doit pas etre null / format date conforme (YYYYMMDD)
 # Contrainte d'unicite recommandee: (service_id, date)
 
-# Classes de nettoyage spécifiques à chaque entité
+
 class EntityCleaner:
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError("Méthode clean() doit être implémentée par les sous-classes.")
 
-# Étapes de nettoyage génériques
+
 class CleaningStep:
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError("Méthode apply() doit être implémentée par les sous-classes.")
 
-# remplissage des valeurs nulles
+
 class FillNullStep(CleaningStep):
     def __init__(self, column: str, fill_value):
         self.column = column
         self.fill_value = fill_value
-    
+
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        #verifie que la colonne existe avant de tenter de remplir les nulls
-        if(self.column in df.columns):
-         df[self.column] = df[self.column].fillna(self.fill_value)
+        if self.column in df.columns:
+            df[self.column] = df[self.column].fillna(self.fill_value)
         return df
 
 
-# convertit les chaines vides en valeurs nulles sur les colonnes cibles
 class EmptyToNullStep(CleaningStep):
     def __init__(self, columns: list[str]):
         self.columns = columns
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
         for column in self.columns:
             if column in df.columns:
                 series = df[column]
@@ -75,7 +70,7 @@ class EmptyToNullStep(CleaningStep):
                 df[column] = series.replace('', pd.NA)
         return df
 
-# suppression des doublons
+
 class DeduplicateStep(CleaningStep):
     def __init__(self, subset: list[str]):
         self.subset = subset
@@ -83,7 +78,7 @@ class DeduplicateStep(CleaningStep):
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         return df.drop_duplicates(subset=self.subset)
 
-# suppression des valeurs nulles
+
 class DropNullStep(CleaningStep):
     def __init__(self, columns: list[str]):
         self.columns = columns
@@ -92,7 +87,6 @@ class DropNullStep(CleaningStep):
         return df.dropna(subset=self.columns)
 
 
-# conserve uniquement les lignes dont la colonne appartient a une liste autorisee
 class KeepAllowedValuesStep(CleaningStep):
     def __init__(self, column: str, allowed_values: set[str]):
         self.column = column
@@ -101,12 +95,10 @@ class KeepAllowedValuesStep(CleaningStep):
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         if self.column not in df.columns:
             return df
+        df[self.column] = df[self.column].astype(str).str.strip()
+        return df[df[self.column].isin(self.allowed_values)]
 
-        filtered = df.copy()
-        filtered[self.column] = filtered[self.column].astype(str).str.strip()
-        return filtered[filtered[self.column].isin(self.allowed_values)]
 
-# étapes de nettoyage
 class DataFramePipeline:
     """Orchestre les étapes de nettoyage."""
     def __init__(self, steps: list[CleaningStep] | None = None):
@@ -115,14 +107,14 @@ class DataFramePipeline:
     def add_step(self, step: CleaningStep) -> 'DataFramePipeline':
         self.steps.append(step)
         return self
-    
+
     def execute(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
         for step in self.steps:
             df = step.apply(df)
         return df
 
-# Cleaners spécifiques à chaque entité
-# === df_stops ===
+
 class StopCleaner(EntityCleaner):
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
         return DataFramePipeline() \
@@ -131,17 +123,17 @@ class StopCleaner(EntityCleaner):
             .add_step(DeduplicateStep(subset=['stop_id'])) \
             .execute(df)
 
-# === df_routes ===
+
 class RouteCleaner(EntityCleaner):
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
         return DataFramePipeline() \
-            .add_step(EmptyToNullStep(['route_id', 'route_short_name', 'route_long_name', 'route_desc', 'route_type'])) \
-            .add_step(DropNullStep(['route_id', 'route_short_name', 'route_long_name', 'route_desc', 'route_type'])) \
+            .add_step(EmptyToNullStep(['route_id', 'route_short_name', 'route_long_name', 'route_type'])) \
+            .add_step(DropNullStep(['route_id', 'route_short_name', 'route_long_name', 'route_type'])) \
             .add_step(KeepAllowedValuesStep('route_type', {'0', '1'})) \
             .add_step(DeduplicateStep(subset=['route_id'])) \
             .execute(df)
-    
-# === df_trips ===
+
+
 class TripCleaner(EntityCleaner):
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
         return DataFramePipeline() \
@@ -150,10 +142,8 @@ class TripCleaner(EntityCleaner):
             .add_step(KeepAllowedValuesStep('direction_id', {'0', '1'})) \
             .add_step(DeduplicateStep(subset=['trip_id'])) \
             .execute(df)
-    
 
-### Donnees de categorie dynamique
-# === df_stop_times ===
+
 class StopTimeCleaner(EntityCleaner):
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
         return DataFramePipeline() \
@@ -161,12 +151,12 @@ class StopTimeCleaner(EntityCleaner):
             .add_step(DropNullStep(['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'])) \
             .add_step(DeduplicateStep(subset=['trip_id', 'stop_sequence'])) \
             .execute(df)
-    
-# === df_calendars ===
+
+
 class CalendarCleaner(EntityCleaner):
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
         return DataFramePipeline() \
             .add_step(EmptyToNullStep(['service_id', 'date'])) \
             .add_step(DropNullStep(['service_id', 'date'])) \
             .add_step(DeduplicateStep(subset=['service_id', 'date'])) \
-            .execute(df) 
+            .execute(df)
